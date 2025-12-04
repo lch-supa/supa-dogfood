@@ -74,7 +74,6 @@ const EditPoemSet = () => {
   const [sonnetLocks, setSonnetLocks] = useState<SonnetLock[]>([]);
   const currentEditingSonnetRef = useRef<number | null>(null);
   const channelRef = useRef<any>(null);
-  const scrollPositionRef = useRef<number>(0);
 
   // Load poem set data
   useEffect(() => {
@@ -110,26 +109,6 @@ const EditPoemSet = () => {
     setLastSavedAt(new Date(updatedPoemSet.updated_at));
   }, []);
 
-  // Preserve scroll position on presence updates
-  useEffect(() => {
-    const handleScroll = () => {
-      scrollPositionRef.current = window.scrollY;
-    };
-
-    window.addEventListener('scroll', handleScroll);
-    return () => window.removeEventListener('scroll', handleScroll);
-  }, []);
-
-  // Restore scroll position after presence updates
-  useEffect(() => {
-    // Only restore if we have a saved position and we're not actively editing
-    if (scrollPositionRef.current > 0 && currentEditingSonnetRef.current === null) {
-      const timeoutId = setTimeout(() => {
-        window.scrollTo({ top: scrollPositionRef.current, behavior: 'instant' });
-      }, 0);
-      return () => clearTimeout(timeoutId);
-    }
-  }, [activeCollaborators, sonnetLocks]);
 
   // Set up real-time collaboration
   useEffect(() => {
