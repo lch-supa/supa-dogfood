@@ -2,8 +2,8 @@ import { useState } from "react";
 import { motion } from "framer-motion";
 import { Eye, EyeOff, ExternalLink, Trash2, Plus, Pencil } from "lucide-react";
 import { Link } from "react-router-dom";
-import { Header } from "@/components/Header";
-import { Footer } from "@/components/Footer";
+import { Header } from "@/components/layout/Header";
+import { Footer } from "@/components/layout/Footer";
 import { useUserPoemSets, usePublishPoemSet, useUnpublishPoemSet, useDeletePoemSet } from "@/hooks/use-poem-sets";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
@@ -20,7 +20,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { GeneratePoemsDialog } from "@/components/GeneratePoemsDialog";
+import { GeneratePoemsDialog } from "@/components/dialogs/GeneratePoemsDialog";
 
 const MySets = () => {
   const { data: poemSets, isLoading } = useUserPoemSets();
@@ -178,7 +178,17 @@ const MySets = () => {
                         )}
                       </div>
                     </div>
-                    <CardDescription>{set.theme}</CardDescription>
+                    {set.tags && set.tags.length > 0 && (
+                      <CardDescription>
+                        <div className="flex flex-wrap gap-1 mt-2">
+                          {set.tags.map((tag, idx) => (
+                            <Badge key={idx} variant="outline" className="text-xs">
+                              {tag}
+                            </Badge>
+                          ))}
+                        </div>
+                      </CardDescription>
+                    )}
                   </CardHeader>
                   <CardContent className="flex-1">
                     <div className="flex items-center gap-4 text-sm text-muted-foreground">

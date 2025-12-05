@@ -2,10 +2,13 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import { ArrowLeft, Save, Users, Lock, Check, AlertTriangle } from "lucide-react";
-import { Header } from "@/components/Header";
-import { Footer } from "@/components/Footer";
-import { InviteCollaboratorDialog } from "@/components/InviteCollaboratorDialog";
-import { PoemSetChat } from "@/components/PoemSetChat";
+import { Header } from "@/components/layout/Header";
+import { Footer } from "@/components/layout/Footer";
+import { InviteCollaboratorDialog } from "@/components/dialogs/InviteCollaboratorDialog";
+import { EditMetadataDialog } from "@/components/dialogs/EditMetadataDialog";
+import { PreviewPoemSetDialog } from "@/components/dialogs/PreviewPoemSetDialog";
+import { ExportPoemSetDialog } from "@/components/dialogs/ExportPoemSetDialog";
+import { PoemSetChat } from "@/components/social/PoemSetChat";
 import { usePoemSet, useUpdatePoemSet } from "@/hooks/use-poem-sets";
 import { useCollaborators } from "@/hooks/use-collaborators";
 import { useAuth } from "@/hooks/use-auth";
@@ -62,7 +65,7 @@ const EditPoemSet = () => {
 
   // Local state
   const [title, setTitle] = useState("");
-  const [theme, setTheme] = useState("");
+  const [tagsInput, setTagsInput] = useState("");
   const [sonnets, setSonnets] = useState<string[]>(Array(10).fill(""));
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [showUnsavedDialog, setShowUnsavedDialog] = useState(false);
@@ -79,16 +82,19 @@ const EditPoemSet = () => {
   useEffect(() => {
     if (poemSet) {
       setTitle(poemSet.title);
-      setTheme(poemSet.theme);
+      setTagsInput(poemSet.tags.join(', '));
       setSonnets(poemSet.poems.map(p => p.lines.join('\n')));
     }
   }, [poemSet]);
 
   // Handle remote updates from other users
   const handleRemoteUpdate = useCallback((updatedPoemSet: any) => {
-    // Always update title and theme (metadata conflicts are rare)
+    // Save scroll position before update
+    const currentScroll = window.scrollY;
+
+    // Always update title and tags (metadata conflicts are rare)
     setTitle(updatedPoemSet.title);
-    setTheme(updatedPoemSet.theme);
+    setTagsInput(updatedPoemSet.tags.join(', '));
 
     // For sonnets, only update ones that aren't currently being edited
     setSonnets(prev => {
@@ -107,6 +113,11 @@ const EditPoemSet = () => {
     });
 
     setLastSavedAt(new Date(updatedPoemSet.updated_at));
+
+    // Restore scroll position immediately after state updates
+    requestAnimationFrame(() => {
+      window.scrollTo({ top: currentScroll, behavior: 'instant' });
+    });
   }, []);
 
 
@@ -253,6 +264,13 @@ const EditPoemSet = () => {
     return sonnetLocks.find(l => l.sonnet_index === index && l.user_id !== user?.id);
   };
 
+  // Handle metadata save from dialog
+  const handleMetadataSave = (newTitle: string, newTagsInput: string) => {
+    setTitle(newTitle);
+    setTagsInput(newTagsInput);
+    setHasUnsavedChanges(true);
+  };
+
   // Get all users editing a specific sonnet
   const getUsersEditingSonnet = (index: number): PresenceState[] => {
     return activeCollaborators.filter(collab => collab.editing_sonnet === index);
@@ -284,10 +302,12 @@ const EditPoemSet = () => {
           lines: sonnet.split('\n').filter(line => line.trim())
         }));
 
+        const tags = tagsInput.split(',').map(t => t.trim()).filter(t => t.length > 0);
+
         await updatePoemSet.mutateAsync({
           id,
           title,
-          theme,
+          tags,
           poems: poemsData
         });
 
@@ -300,7 +320,7 @@ const EditPoemSet = () => {
     }, 3000); // 3 second debounce
 
     return () => clearTimeout(autoSaveTimer);
-  }, [title, theme, sonnets, hasUnsavedChanges, id, updatePoemSet]);
+  }, [title, tagsInput, sonnets, hasUnsavedChanges, id, updatePoemSet]);
 
   // Validate all sonnets
   const validateSonnets = (): { valid: boolean; errors: string[] } => {
@@ -338,10 +358,12 @@ const EditPoemSet = () => {
         lines: sonnet.split('\n').filter(line => line.trim())
       }));
 
+      const tags = tagsInput.split(',').map(t => t.trim()).filter(t => t.length > 0);
+
       await updatePoemSet.mutateAsync({
         id,
         title,
-        theme,
+        tags,
         poems: poemsData
       });
 
@@ -444,6 +466,11 @@ const EditPoemSet = () => {
             </div>
 
             <div className="flex gap-2">
+              <EditMetadataDialog
+                currentTitle={title}
+                currentTags={tagsInput}
+                onSave={handleMetadataSave}
+              />
               {!poemSet?.allow_collaboration && (
                 <Button
                   variant="outline"
@@ -478,23 +505,15 @@ const EditPoemSet = () => {
                   poemSetTitle={poemSet?.title || ''}
                 />
               )}
-              <Button
-                onClick={handleSave}
-                disabled={!hasUnsavedChanges || saving}
-                className="gap-2"
-              >
-                {saving ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
-                    Saving...
-                  </>
-                ) : (
-                  <>
-                    <Save className="w-4 h-4" />
-                    Save Changes
-                  </>
-                )}
-              </Button>
+              <PreviewPoemSetDialog
+                title={title}
+                tags={tagsInput}
+                sonnets={sonnets}
+              />
+              <ExportPoemSetDialog
+                title={title}
+                sonnets={sonnets}
+              />
             </div>
           </div>
 
@@ -546,43 +565,6 @@ const EditPoemSet = () => {
               </div>
             ) : null}
           </div>
-        </motion.div>
-
-        {/* Metadata Section */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-          className="max-w-4xl mx-auto mb-8"
-        >
-          <Card>
-            <CardContent className="pt-6 space-y-4">
-              <div>
-                <Label htmlFor="title">Title</Label>
-                <Input
-                  id="title"
-                  value={title}
-                  onChange={(e) => {
-                    setTitle(e.target.value);
-                    setHasUnsavedChanges(true);
-                  }}
-                  placeholder="Enter poem set title"
-                />
-              </div>
-              <div>
-                <Label htmlFor="theme">Theme</Label>
-                <Input
-                  id="theme"
-                  value={theme}
-                  onChange={(e) => {
-                    setTheme(e.target.value);
-                    setHasUnsavedChanges(true);
-                  }}
-                  placeholder="Enter theme or description"
-                />
-              </div>
-            </CardContent>
-          </Card>
         </motion.div>
 
         {/* Content Grid - Main content + Chat */}
@@ -690,7 +672,7 @@ const EditPoemSet = () => {
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: 0.3 }}
-              className="lg:sticky lg:top-24 lg:h-[calc(100vh-8rem)]"
+              className="h-[500px]"
             >
               <PoemSetChat poemSetId={id} />
             </motion.div>

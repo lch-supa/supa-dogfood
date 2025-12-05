@@ -10,7 +10,7 @@ export interface Collaborator {
   created_at: string;
   user?: {
     id: string;
-    email?: string;
+    handle?: string;
     display_name?: string;
     avatar_url?: string;
   };
@@ -37,7 +37,7 @@ export function useCollaborators(poemSetId: string | null) {
       const userIds = collabData.map(c => c.user_id);
       const { data: profileData, error: profileError } = await supabase
         .from('profiles')
-        .select('id, email, display_name, avatar_url')
+        .select('id, handle, display_name, avatar_url')
         .in('id', userIds);
 
       if (profileError) throw profileError;
@@ -61,21 +61,21 @@ export function useInviteCollaborator() {
   return useMutation({
     mutationFn: async ({
       poemSetId,
-      userEmail,
+      userHandle,
       role = 'editor',
     }: {
       poemSetId: string;
-      userEmail: string;
+      userHandle: string;
       role?: 'editor' | 'viewer';
     }) => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('You must be signed in to invite collaborators');
 
-      // Look up the user by email
+      // Look up the user by handle
       const { data: invitedUser, error: userError } = await supabase
         .from('profiles')
         .select('id')
-        .eq('email', userEmail)
+        .eq('handle', userHandle)
         .single();
 
       if (userError || !invitedUser) {
@@ -104,7 +104,7 @@ export function useInviteCollaborator() {
       // Fetch the user profile
       const { data: profileData } = await supabase
         .from('profiles')
-        .select('id, email, display_name, avatar_url')
+        .select('id, handle, display_name, avatar_url')
         .eq('id', invitedUser.id)
         .single();
 
@@ -170,7 +170,7 @@ export function useUpdateCollaboratorRole() {
       // Fetch the user profile
       const { data: profileData } = await supabase
         .from('profiles')
-        .select('id, email, display_name, avatar_url')
+        .select('id, handle, display_name, avatar_url')
         .eq('id', collabData.user_id)
         .single();
 

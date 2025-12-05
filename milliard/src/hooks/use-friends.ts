@@ -2,296 +2,194 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from './use-auth';
 
-export interface Friend {
+// ============================================
+// TYPES
+// ============================================
+
+export interface FriendRequest {
   id: string;
-  user_id: string;
-  friend_id: string;
-  status: 'pending' | 'accepted' | 'rejected';
-  requested_at: string;
-  responded_at: string | null;
+  sender_id: string;
+  receiver_id: string;
+  status: 'pending' | 'rejected';
+  created_at: string;
+  updated_at: string;
 }
 
-export interface FriendWithProfile extends Friend {
+export interface Friendship {
+  id: string;
+  user1_id: string;
+  user2_id: string;
+  created_at: string;
+}
+
+export interface FriendRequestWithProfile extends FriendRequest {
+  sender_profile: {
+    id: string;
+    handle: string | null;
+    display_name: string | null;
+    avatar_url: string | null;
+  };
+  receiver_profile: {
+    id: string;
+    handle: string | null;
+    display_name: string | null;
+    avatar_url: string | null;
+  };
+}
+
+export interface FriendshipWithProfile extends Friendship {
   friend_profile: {
     id: string;
-    email: string | null;
+    handle: string | null;
     display_name: string | null;
     avatar_url: string | null;
   };
 }
 
-export interface FriendRequestWithProfile extends Friend {
-  requester_profile: {
-    id: string;
-    email: string | null;
-    display_name: string | null;
-    avatar_url: string | null;
-  };
-}
+// ============================================
+// QUERY HOOKS
+// ============================================
 
-// Get list of friends for current user
+/**
+ * Get list of accepted friendships for current user
+ * Returns profiles of all friends
+ */
 export function useFriends() {
   const { user } = useAuth();
 
   return useQuery({
-    queryKey: ['friends', user?.id],
+    queryKey: ['friendships', user?.id],
     queryFn: async () => {
       if (!user) return [];
 
+      // Query friendships where current user is either user1 or user2
       const { data, error } = await supabase
-        .from('friends')
-        .select(`
-          *,
-          friend_profile:friend_id (
-            id,
-            email,
-            display_name,
-            avatar_url
-          )
-        `)
-        .eq('user_id', user.id)
-        .eq('status', 'accepted')
-        .order('requested_at', { ascending: false });
+        .from('friendships')
+        .select('*')
+        .or(`user1_id.eq.${user.id},user2_id.eq.${user.id}`)
+        .order('created_at', { ascending: false });
 
       if (error) throw error;
-      return data as FriendWithProfile[];
+
+      // Now fetch the friend profiles
+      // For each friendship, determine which user is the friend
+      const friendIds = data.map((friendship) =>
+        friendship.user1_id === user.id ? friendship.user2_id : friendship.user1_id
+      );
+
+      if (friendIds.length === 0) return [];
+
+      // Fetch all friend profiles
+      const { data: profiles, error: profilesError } = await supabase
+        .from('profiles')
+        .select('id, handle, display_name, avatar_url')
+        .in('id', friendIds);
+
+      if (profilesError) throw profilesError;
+
+      // Combine friendships with profiles
+      return data.map((friendship) => {
+        const friendId = friendship.user1_id === user.id
+          ? friendship.user2_id
+          : friendship.user1_id;
+
+        const friendProfile = profiles.find(p => p.id === friendId);
+
+        return {
+          ...friendship,
+          friend_id: friendId,
+          friend_profile: friendProfile || {
+            id: friendId,
+            handle: null,
+            display_name: null,
+            avatar_url: null
+          }
+        };
+      }) as FriendshipWithProfile[];
     },
     enabled: !!user,
   });
 }
 
-// Get pending friend requests sent to current user
+/**
+ * Get pending friend requests sent TO current user
+ */
 export function useFriendRequests() {
   const { user } = useAuth();
 
   return useQuery({
-    queryKey: ['friend-requests', user?.id],
+    queryKey: ['friend-requests-received', user?.id],
     queryFn: async () => {
       if (!user) return [];
 
       const { data, error } = await supabase
-        .from('friends')
+        .from('friend_requests')
         .select(`
           *,
-          requester_profile:user_id (
+          sender_profile:profiles!friend_requests_sender_id_fkey (
             id,
-            email,
+            handle,
             display_name,
             avatar_url
           )
         `)
-        .eq('friend_id', user.id)
+        .eq('receiver_id', user.id)
         .eq('status', 'pending')
-        .order('requested_at', { ascending: false });
+        .order('created_at', { ascending: false });
 
       if (error) throw error;
-      return data as FriendRequestWithProfile[];
+
+      // Type assertion to match expected structure
+      return data.map(req => ({
+        ...req,
+        requester_profile: req.sender_profile
+      })) as any;
     },
     enabled: !!user,
   });
 }
 
-// Get pending friend requests sent by current user
+/**
+ * Get pending friend requests sent BY current user
+ */
 export function useSentFriendRequests() {
   const { user } = useAuth();
 
   return useQuery({
-    queryKey: ['sent-friend-requests', user?.id],
+    queryKey: ['friend-requests-sent', user?.id],
     queryFn: async () => {
       if (!user) return [];
 
       const { data, error } = await supabase
-        .from('friends')
+        .from('friend_requests')
         .select(`
           *,
-          friend_profile:friend_id (
+          receiver_profile:profiles!friend_requests_receiver_id_fkey (
             id,
-            email,
+            handle,
             display_name,
             avatar_url
           )
         `)
-        .eq('user_id', user.id)
+        .eq('sender_id', user.id)
         .eq('status', 'pending')
-        .order('requested_at', { ascending: false });
+        .order('created_at', { ascending: false });
 
       if (error) throw error;
-      return data as FriendWithProfile[];
+
+      // Type assertion to match expected structure
+      return data.map(req => ({
+        ...req,
+        friend_profile: req.receiver_profile
+      })) as any;
     },
     enabled: !!user,
   });
 }
 
-// Send friend request to a user (by email or user_id)
-export function useSendFriendRequest() {
-  const queryClient = useQueryClient();
-  const { user } = useAuth();
-
-  return useMutation({
-    mutationFn: async ({ email, userId }: { email?: string; userId?: string }) => {
-      if (!user) throw new Error('Not authenticated');
-
-      let friendId = userId;
-
-      // If email provided, look up user by email
-      if (email && !userId) {
-        const { data: profile, error: profileError } = await supabase
-          .from('profiles')
-          .select('id')
-          .eq('email', email)
-          .single();
-
-        if (profileError) throw new Error('User not found');
-        friendId = profile.id;
-      }
-
-      if (!friendId) throw new Error('Must provide email or userId');
-
-      // Check if friend request already exists (in either direction)
-      const { data: existing } = await supabase
-        .from('friends')
-        .select('*')
-        .or(`and(user_id.eq.${user.id},friend_id.eq.${friendId}),and(user_id.eq.${friendId},friend_id.eq.${user.id})`)
-        .single();
-
-      if (existing) {
-        if (existing.status === 'pending') {
-          throw new Error('Friend request already pending');
-        } else if (existing.status === 'accepted') {
-          throw new Error('Already friends');
-        }
-      }
-
-      const { data, error } = await supabase
-        .from('friends')
-        .insert({
-          user_id: user.id,
-          friend_id: friendId,
-          status: 'pending',
-        })
-        .select()
-        .single();
-
-      if (error) throw error;
-      return data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['friends'] });
-      queryClient.invalidateQueries({ queryKey: ['sent-friend-requests'] });
-    },
-  });
-}
-
-// Accept friend request
-export function useAcceptFriendRequest() {
-  const queryClient = useQueryClient();
-  const { user } = useAuth();
-
-  return useMutation({
-    mutationFn: async (requestId: string) => {
-      if (!user) throw new Error('Not authenticated');
-
-      const { data, error } = await supabase
-        .from('friends')
-        .update({
-          status: 'accepted',
-          responded_at: new Date().toISOString(),
-        })
-        .eq('id', requestId)
-        .eq('friend_id', user.id)
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      // Create reciprocal friendship
-      const { data: reciprocal, error: reciprocalError } = await supabase
-        .from('friends')
-        .insert({
-          user_id: data.friend_id,
-          friend_id: data.user_id,
-          status: 'accepted',
-          requested_at: data.requested_at,
-          responded_at: new Date().toISOString(),
-        })
-        .select()
-        .single();
-
-      if (reciprocalError) throw reciprocalError;
-
-      return data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['friends'] });
-      queryClient.invalidateQueries({ queryKey: ['friend-requests'] });
-    },
-  });
-}
-
-// Reject friend request
-export function useRejectFriendRequest() {
-  const queryClient = useQueryClient();
-  const { user } = useAuth();
-
-  return useMutation({
-    mutationFn: async (requestId: string) => {
-      if (!user) throw new Error('Not authenticated');
-
-      const { data, error } = await supabase
-        .from('friends')
-        .update({
-          status: 'rejected',
-          responded_at: new Date().toISOString(),
-        })
-        .eq('id', requestId)
-        .eq('friend_id', user.id)
-        .select()
-        .single();
-
-      if (error) throw error;
-      return data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['friend-requests'] });
-    },
-  });
-}
-
-// Remove friend (unfriend)
-export function useRemoveFriend() {
-  const queryClient = useQueryClient();
-  const { user } = useAuth();
-
-  return useMutation({
-    mutationFn: async (friendId: string) => {
-      if (!user) throw new Error('Not authenticated');
-
-      // Delete both directions of the friendship
-      const { error: error1 } = await supabase
-        .from('friends')
-        .delete()
-        .eq('user_id', user.id)
-        .eq('friend_id', friendId);
-
-      if (error1) throw error1;
-
-      const { error: error2 } = await supabase
-        .from('friends')
-        .delete()
-        .eq('user_id', friendId)
-        .eq('friend_id', user.id);
-
-      if (error2) throw error2;
-
-      return { success: true };
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['friends'] });
-    },
-  });
-}
-
-// Check if two users are friends
+/**
+ * Check if current user is friends with another user
+ */
 export function useIsFriend(userId: string | undefined) {
   const { user } = useAuth();
 
@@ -300,17 +198,159 @@ export function useIsFriend(userId: string | undefined) {
     queryFn: async () => {
       if (!user || !userId) return false;
 
-      const { data, error } = await supabase
-        .from('friends')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('friend_id', userId)
-        .eq('status', 'accepted')
-        .single();
+      const { data, error } = await supabase.rpc('are_friends', {
+        user_a: user.id,
+        user_b: userId
+      });
 
-      if (error && error.code !== 'PGRST116') throw error; // PGRST116 = no rows returned
-      return !!data;
+      if (error) throw error;
+      return data as boolean;
     },
     enabled: !!user && !!userId,
+  });
+}
+
+// ============================================
+// MUTATION HOOKS
+// ============================================
+
+/**
+ * Send a friend request to a user (by handle or user_id)
+ */
+export function useSendFriendRequest() {
+  const queryClient = useQueryClient();
+  const { user } = useAuth();
+
+  return useMutation({
+    mutationFn: async ({ handle, userId }: { handle?: string; userId?: string }) => {
+      if (!user) throw new Error('Not authenticated');
+
+      let targetUserId = userId;
+
+      // If handle provided, look up user by handle
+      if (handle && !userId) {
+        const { data: profile, error: profileError } = await supabase
+          .from('profiles')
+          .select('id')
+          .eq('handle', handle)
+          .single();
+
+        if (profileError) throw new Error('User not found');
+        targetUserId = profile.id;
+      }
+
+      if (!targetUserId) throw new Error('Must provide handle or userId');
+
+      // Use the RPC function to send the request with validation
+      const { data, error } = await supabase.rpc('send_friend_request', {
+        target_user_id: targetUserId
+      });
+
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['friend-requests-sent'] });
+    },
+  });
+}
+
+/**
+ * Accept a friend request
+ */
+export function useAcceptFriendRequest() {
+  const queryClient = useQueryClient();
+  const { user } = useAuth();
+
+  return useMutation({
+    mutationFn: async (requestId: string) => {
+      if (!user) throw new Error('Not authenticated');
+
+      // Use the RPC function which handles creating the friendship and deleting the request
+      const { error } = await supabase.rpc('accept_friend_request', {
+        request_id: requestId
+      });
+
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['friendships'] });
+      queryClient.invalidateQueries({ queryKey: ['friend-requests-received'] });
+    },
+  });
+}
+
+/**
+ * Reject a friend request
+ */
+export function useRejectFriendRequest() {
+  const queryClient = useQueryClient();
+  const { user } = useAuth();
+
+  return useMutation({
+    mutationFn: async (requestId: string) => {
+      if (!user) throw new Error('Not authenticated');
+
+      // Use the RPC function
+      const { error } = await supabase.rpc('reject_friend_request', {
+        request_id: requestId
+      });
+
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['friend-requests-received'] });
+    },
+  });
+}
+
+/**
+ * Remove a friendship (unfriend)
+ */
+export function useRemoveFriend() {
+  const queryClient = useQueryClient();
+  const { user } = useAuth();
+
+  return useMutation({
+    mutationFn: async (friendId: string) => {
+      if (!user) throw new Error('Not authenticated');
+
+      // Delete the friendship row (UUID ordering is handled by the check constraint)
+      const { error } = await supabase
+        .from('friendships')
+        .delete()
+        .eq('user1_id', user.id < friendId ? user.id : friendId)
+        .eq('user2_id', user.id < friendId ? friendId : user.id);
+
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['friendships'] });
+    },
+  });
+}
+
+/**
+ * Cancel a sent friend request
+ */
+export function useCancelFriendRequest() {
+  const queryClient = useQueryClient();
+  const { user } = useAuth();
+
+  return useMutation({
+    mutationFn: async (requestId: string) => {
+      if (!user) throw new Error('Not authenticated');
+
+      const { error } = await supabase
+        .from('friend_requests')
+        .delete()
+        .eq('id', requestId)
+        .eq('sender_id', user.id);
+
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['friend-requests-sent'] });
+    },
   });
 }

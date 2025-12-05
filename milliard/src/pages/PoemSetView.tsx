@@ -2,9 +2,9 @@ import { useParams, useNavigate, Link } from "react-router-dom";
 import { useState } from "react";
 import { motion } from "framer-motion";
 import { ArrowLeft, Share2, Trash2, Eye, EyeOff, Check } from "lucide-react";
-import { Header } from "@/components/Header";
-import { Footer } from "@/components/Footer";
-import { FlipReader } from "@/components/FlipReader";
+import { Header } from "@/components/layout/Header";
+import { Footer } from "@/components/layout/Footer";
+import { FlipReader } from "@/components/poems/FlipReader";
 import { usePoemSet, usePublishPoemSet, useUnpublishPoemSet, useDeletePoemSet } from "@/hooks/use-poem-sets";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
@@ -218,7 +218,15 @@ const PoemSetView = () => {
                 </Badge>
               )}
             </div>
-            <p className="text-lg text-muted-foreground">{poemSet.theme}</p>
+            {poemSet.tags && poemSet.tags.length > 0 && (
+              <div className="flex flex-wrap gap-2 justify-center mb-2">
+                {poemSet.tags.map((tag, idx) => (
+                  <Badge key={idx} variant="outline">
+                    {tag}
+                  </Badge>
+                ))}
+              </div>
+            )}
             <p className="text-sm text-muted-foreground/60 mt-2">
               Created {new Date(poemSet.created_at).toLocaleDateString()}
             </p>
@@ -227,11 +235,7 @@ const PoemSetView = () => {
 
         {/* FlipReader */}
         <FlipReader
-          poemSet={{
-            title: poemSet.title,
-            theme: poemSet.theme,
-            poems: poemSet.poems,
-          }}
+          poemSet={poemSet}
           poemSetId={poemSet.id}
         />
       </main>

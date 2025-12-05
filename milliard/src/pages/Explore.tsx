@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
 import { Search, Calendar } from "lucide-react";
-import { Header } from "@/components/Header";
-import { Footer } from "@/components/Footer";
+import { Header } from "@/components/layout/Header";
+import { Footer } from "@/components/layout/Footer";
 import { usePoemSets } from "@/hooks/use-poem-sets";
 import { useAuth } from "@/hooks/use-auth";
 import { Input } from "@/components/ui/input";
@@ -18,7 +18,7 @@ const Explore = () => {
   // Filter logic
   const filteredSets = poemSets?.filter(set =>
     set.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    set.theme.toLowerCase().includes(searchQuery.toLowerCase())
+    set.tags.some(tag => tag.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
   return (
@@ -45,7 +45,7 @@ const Explore = () => {
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
             <Input
-              placeholder="Search by title or theme..."
+              placeholder="Search by title or tags..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="pl-10"
@@ -78,7 +78,17 @@ const Explore = () => {
                           <Badge variant="secondary">Yours</Badge>
                         )}
                       </div>
-                      <CardDescription>{set.theme}</CardDescription>
+                      {set.tags && set.tags.length > 0 && (
+                        <CardDescription>
+                          <div className="flex flex-wrap gap-1 mt-2">
+                            {set.tags.map((tag, idx) => (
+                              <Badge key={idx} variant="outline" className="text-xs">
+                                {tag}
+                              </Badge>
+                            ))}
+                          </div>
+                        </CardDescription>
+                      )}
                     </CardHeader>
                     <CardContent>
                       <div className="flex items-center gap-4 text-sm text-muted-foreground">

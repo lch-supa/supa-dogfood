@@ -4,7 +4,7 @@ import { supabase } from '@/lib/supabase';
 export interface PoemSet {
   id: string;
   title: string;
-  theme: string;
+  tags: string[];
   poems: Array<{ lines: string[] }>;
   created_at: string;
   updated_at: string;
@@ -12,16 +12,17 @@ export interface PoemSet {
   is_public: boolean;
   status: 'draft' | 'published';
   allow_collaboration?: boolean;
+  group_id?: string | null;
 }
 
 export interface GeneratePoemsRequest {
-  theme: string;
+  tags: string[];
   description?: string;
 }
 
 export interface ManualPoemSetInput {
   title: string;
-  theme: string;
+  tags: string[];
   poems: Array<{ lines: string[] }>;
 }
 
@@ -234,7 +235,7 @@ export function useSaveManualPoemSet() {
 
       const poemSetData = {
         title: input.title,
-        theme: input.theme,
+        tags: input.tags,
         poems: input.poems,
         user_id: user.id,
         is_public: status === 'published',
@@ -384,13 +385,13 @@ export function useUpdatePoemSet() {
     mutationFn: async ({
       id,
       title,
-      theme,
+      tags,
       poems,
       allowCollaboration
     }: {
       id: string;
       title?: string;
-      theme?: string;
+      tags?: string[];
       poems?: Array<{ lines: string[] }>;
       allowCollaboration?: boolean;
     }) => {
@@ -402,7 +403,7 @@ export function useUpdatePoemSet() {
       };
 
       if (title !== undefined) updateData.title = title;
-      if (theme !== undefined) updateData.theme = theme;
+      if (tags !== undefined) updateData.tags = tags;
       if (poems !== undefined) updateData.poems = poems;
       if (allowCollaboration !== undefined) updateData.allow_collaboration = allowCollaboration;
 
@@ -422,5 +423,61 @@ export function useUpdatePoemSet() {
       queryClient.invalidateQueries({ queryKey: ['draft-poem-sets'] });
       queryClient.invalidateQueries({ queryKey: ['poem-set', data.id] });
     },
+  });
+}
+
+// Assign a poem set to a group
+export function useAssignPoemSetToGroup() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ poemSetId, groupId }: { poemSetId: string; groupId: string | null }) => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('You must be signed in');
+
+      const { data, error } = await supabase
+        .from('poem_sets')
+        .update({
+          group_id: groupId,
+          allow_collaboration: groupId !== null,  // Enable collaboration when adding to group, disable when removing
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', poemSetId)
+        .eq('user_id', user.id)  // Only owner can assign to group
+        .select()
+        .single();
+
+      if (error) throw error;
+      return data as PoemSet;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['poem-sets'] });
+      queryClient.invalidateQueries({ queryKey: ['user-poem-sets'] });
+      queryClient.invalidateQueries({ queryKey: ['poem-set', data.id] });
+      queryClient.invalidateQueries({ queryKey: ['group-members'] });
+      if (data.group_id) {
+        queryClient.invalidateQueries({ queryKey: ['group', data.group_id] });
+      }
+    },
+  });
+}
+
+// Fetch poem sets for a specific group
+export function useGroupPoemSets(groupId: string | undefined) {
+  return useQuery({
+    queryKey: ['group-poem-sets', groupId],
+    queryFn: async () => {
+      if (!groupId) throw new Error('Group ID is required');
+
+      const { data, error } = await supabase
+        .from('poem_sets')
+        .select('*')
+        .eq('group_id', groupId)
+        .order('updated_at', { ascending: false });
+
+      if (error) throw error;
+      return data as PoemSet[];
+    },
+    enabled: !!groupId,
   });
 }

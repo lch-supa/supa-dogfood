@@ -1,7 +1,7 @@
 // Sample poem set demonstrating the Queneau concept
-// Theme: The Passage of Time
 export const samplePoemSet = {
   title: "Love, Nature, Exile",
+  tags: ["love", "nature", "exile"],
   poems: [
     {
       "lines": [
